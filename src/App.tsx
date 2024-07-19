@@ -12,19 +12,20 @@ function App() {
   }
 
   async function connect_to_obs() {
-    const hostname = (document.getElementById("hostname") as HTMLInputElement).value;
+    const host = (document.getElementById("hostname") as HTMLInputElement).value;
     const port = (document.getElementById("port") as HTMLInputElement).value;
     const password = (document.getElementById("password") as HTMLInputElement).value;
-    console.log(hostname, port, password);
+    console.log(host, port, password);
     // setGreetMsg(await invoke("connect_to_obs", { hostname, port, password }));
   }
-  async function onSubmit() {
+  async function onSubmit(e:React.MouseEvent<HTMLButtonElement>) {
+    e.preventDefault();
     const formData = new FormData(document.querySelector("form") as HTMLFormElement);
-    const hostname = formData.get("hostname");
-    const port = formData.get("port");
+    const host = formData.get("hostname");
+    const port = parseInt(formData.get("port") as string);
     const password = formData.get("password");
-    console.log(hostname, port, password);
-    setGreetMsg(await invoke("connect_to_obs", { hostname, port, password }));
+    console.log(host, port, password);
+    setGreetMsg(await invoke("connect_to_obs", { host, port, password }));
   }
 
   return (
@@ -59,7 +60,7 @@ function App() {
                 <input
                   id="port"
                   name="port"
-                  type="port"
+                  type="number"
                   defaultValue={4455}
                   required
                   className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"

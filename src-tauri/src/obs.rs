@@ -19,12 +19,42 @@ impl ObsClass{
         }
     }
 
-
     pub async fn get_version(&self) -> Result<String,String>{
         let client = match &self.client{
             Some(client) => client,
             None => return Err("Not connected to OBS".to_string()),
         };
-        let version = client.general().version().await?;
+        let res_version = client.general().version().await;
+        let version = match res_version{
+            Ok(version) => version,
+            Err(_) => return Err("Failed to get OBS version".to_string())
+        };
+        
+        Ok(version.obs_version.to_string())
+    }
+
+    pub async fn set_replay_buffer(&self) -> Result<(),String>{
+        let client = match &self.client{
+            Some(client) => client,
+            None => return Err("Not connected to OBS".to_string()),
+        };
+        let res = client.replay_buffer().start().await;
+        match res {
+            Ok(_) => {},
+            Err(_) => return Err("Failed to start replay buffer".to_string())
+        }
+        Ok(())
+    }
+
+    pub async fn get_replay_file_name(&self) -> Result<String,String>{
+        let client = match &self.client{
+            Some(client) => client,
+            None => return Err("Not connected to OBS".to_string()),
+        };
+        let res = client.replay_buffer().last_replay().await;
+        match res {
+            Ok(file_name) => Ok(file_name),
+            Err(_) => return Err("Failed to get replay file name".to_string())
+        }
     }
 }

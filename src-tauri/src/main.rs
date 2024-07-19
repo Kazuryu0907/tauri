@@ -2,11 +2,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod obs;
-use std::{borrow::BorrowMut, sync::Mutex};
 
 use obs::ObsClass;
 use tauri::Manager;
-use tokio;
+use tokio::sync::Mutex;
 
 
 struct TauriState{
@@ -20,21 +19,27 @@ fn greet(name: &str) -> String {
 }
 
 #[tauri::command]
-fn connect_to_obs(state: tauri::State<TauriState>,host:String, port:u16, password:String) -> String {
+async fn get_obs_version(state: tauri::State<'_,TauriState>) -> Result<String,String> {
+    let obs_class = state.obs.lock().await;
+    let res = obs_class.get_version().await;
+    match res{
+        Ok(version) => Ok(version),
+        Err(_) => Err("Failed to get OBS version".to_string())
+    }
+}
+
+#[tauri::command]
+async fn connect_to_obs(state: tauri::State<'_,TauriState>,host:String, port:u16, password:String) -> Result<String,String> {
     let obs_connection = obs::ObsConnection {
         host: host,
         port: port,
         password: password,
     };
-    let mut obs_class = state.obs.lock().unwrap();
-    let connect = async {
-        obs_class.connect(&obs_connection).await
-    };
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let cli = rt.block_on(connect);
-    match cli{
-        Ok(_) =>  format!("Connected to OBS"),
-        Err(_) => format!("Failed to connect to OBS")
+    let mut obs_class = state.obs.lock().await;
+    let res = obs_class.connect(&obs_connection).await;
+    match res{
+        Ok(_) =>  Ok("Connected to OBS".to_string()),
+        Err(_) => Err("Failed to connect to OBS".to_string())
     }
 }
 

@@ -1,4 +1,4 @@
-use obws::{client, Client};
+use obws::{Client};
 
 pub struct ObsConnection {
     pub host: String,

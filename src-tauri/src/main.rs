@@ -2,9 +2,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod obs;
+mod udp;
 
 use obs::ObsClass;
-use tauri::Manager;
 use tokio::sync::Mutex;
 
 
@@ -44,7 +44,10 @@ async fn connect_to_obs(state: tauri::State<'_,TauriState>,host:String, port:u16
 }
 
 
-fn main() {
+
+#[tokio::main]
+async fn main() {
+    udp::udp().await;
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![greet,connect_to_obs])
         .manage(TauriState{

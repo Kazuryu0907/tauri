@@ -14,6 +14,7 @@ function Logo(){
 
 const ButtonComponent = () => {
   const [connectState,setConnectState] = useState(false);
+  const [errMessage,setErrMessage] = useState("");
 
   const onSubmit = async(e:React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -24,16 +25,28 @@ const ButtonComponent = () => {
     console.log(host, port, password);
     setConnectState(true)
     invoke("connect_to_obs", { host, port, password })
-    .then(() => setConnectState(false))
-    .catch(() => setConnectState(false));
+    .then(() => {setConnectState(false);setErrMessage("")})
+    .catch((e) => {setConnectState(false);setErrMessage(e)});
   }
+
+  const normalButton = () => {
+    return (
+      <button type="submit" onClick={onSubmit} 
+      className="flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold leading-6 text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+      >Submit</button>
+    )
+  }
+  const disableButton = () => {
+    return (
+      <button disabled className="flex w-full justify-center rounded-md cursor-not-allowed bg-gray-300 px-3 py-1.5 text-sm font-semibold leading-6 text-white shadow-sm ">Connecting</button>
+    )
+  }
+
 
   return (
     <div>
-      <button type="submit" onClick={onSubmit} 
-      className="flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold leading-6 text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-      >Button</button>
-      <p>{connectState ? "Pen" : "not Pen"}</p>
+      {connectState ? disableButton() : normalButton()}
+      <div className="mt-2 text-red-600 font-bold">{errMessage}</div>
     </div>
   )
 }

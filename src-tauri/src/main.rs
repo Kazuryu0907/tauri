@@ -4,6 +4,9 @@
 mod obs;
 mod udp;
 
+// use std::fmt::Result;
+use anyhow::{Result,Error};
+
 use obs::ObsClass;
 use tokio::sync::Mutex;
 
@@ -29,6 +32,24 @@ async fn get_obs_version(state: tauri::State<'_,TauriState>) -> Result<String,St
 }
 
 #[tauri::command]
+async fn setup_replay_buffer(state: tauri::State<'_,TauriState>) -> Result<(),String> {
+    let obs_class = state.obs.lock().await;
+    let res = obs_class.set_replay_buffer().await;
+    match res {
+        Ok(_) => Ok(()),
+        Err(_) => return Err("Failed to start replay buffer".to_string())
+    }
+}
+
+#[tauri::command]
+async fn setup_udp(state: tauri::State<'_,TauriState>) -> Result<(),String>{
+    let obs_class = state.obs.lock().await;
+    udp::udp(obs_class.invoke_callback);
+    Ok(())
+
+}
+
+#[tauri::command]
 async fn connect_to_obs(state: tauri::State<'_,TauriState>,host:String, port:u16, password:String) -> Result<String,String> {
     let obs_connection = obs::ObsConnection {
         host: host,
@@ -47,9 +68,8 @@ async fn connect_to_obs(state: tauri::State<'_,TauriState>,host:String, port:u16
 
 #[tokio::main]
 async fn main() {
-    udp::udp().await;
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![greet,connect_to_obs])
+        .invoke_handler(tauri::generate_handler![get_obs_version,connect_to_obs])
         .manage(TauriState{
             obs: Mutex::new(obs::ObsClass{client: None})
         })

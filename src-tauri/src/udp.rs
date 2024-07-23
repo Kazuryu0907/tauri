@@ -6,7 +6,10 @@ struct CommandData{
     data: Option<String>,
 }
 
-pub async fn udp() -> std::io::Result<()>{
+pub async fn udp<F,Fut>(invokeCallback:F) -> std::io::Result<()>
+where F: Fn() -> Fut,
+      Fut: std::future::Future<Output = (String)>
+{
     let socket = UdpSocket::bind("127.0.0.1:12345").await;
     let socket = match socket {
         Ok(socket) => socket,
@@ -31,6 +34,9 @@ pub async fn udp() -> std::io::Result<()>{
         println!("Message: {}", msg);
         let json = string_to_json(msg);
         dbg!(&json);
+        if json.cmd == "goals" {
+            invokeCallback();
+        }
     }
 }
 

@@ -33,6 +33,23 @@ impl ObsClass{
         Ok(version.obs_version.to_string())
     }
 
+    pub async fn invoke_callback(&self) -> Result<String,String>{
+        let client = match &self.client{
+            Some(client) => client,
+            None => return Err("Not connected to OBS".to_string()),
+        };
+        let res = client.replay_buffer().save().await;
+        match res {
+            Ok(_) => {},
+            Err(_) => return Err("Failed to save replay buffer".to_string())
+        }
+        let file_name = client.replay_buffer().last_replay().await;
+        match file_name {
+            Ok(file_name) => Ok(file_name),
+            Err(_) => return Err("Failed to get replay file name".to_string())
+        }
+    }
+
     pub async fn set_replay_buffer(&self) -> Result<(),String>{
         let client = match &self.client{
             Some(client) => client,
@@ -42,6 +59,19 @@ impl ObsClass{
         match res {
             Ok(_) => {},
             Err(_) => return Err("Failed to start replay buffer".to_string())
+        }
+        Ok(())
+    }
+
+    pub async fn capture_replay_buffer(&self) -> Result<(),String>{
+        let client = match &self.client{
+            Some(client) => client,
+            None => return Err("Not connected to OBS".to_string()),
+        };
+        let res = client.replay_buffer().save().await;
+        match res {
+            Ok(_) => {},
+            Err(_) => return Err("Failed to save replay buffer".to_string())
         }
         Ok(())
     }

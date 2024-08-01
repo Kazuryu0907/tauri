@@ -1,5 +1,6 @@
 use tokio::net::UdpSocket;
-use serde::{Deserialize,Serialize};
+// use serde::{Deserialize,Serialize};
+use sonic_rs::{Deserialize,Serialize};
 #[derive(Serialize,Deserialize,Debug)]
 struct CommandData{
     cmd: String,
@@ -41,6 +42,6 @@ where F: Fn() -> Fut,
 }
 
 fn string_to_json(msg: &str) -> CommandData {
-    let json: CommandData = serde_json::from_str(msg).unwrap();
+    let json: CommandData = sonic_rs::from_str(msg).unwrap();
     return json;
 }

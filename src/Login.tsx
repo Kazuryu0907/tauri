@@ -26,8 +26,10 @@ const ButtonComponent = () => {
     console.log(host, port, password);
     setConnectState(true)
     invoke("connect_to_obs", { host, port, password })
-    .then(() => {
-        navigate("/obs");
+    .then(async() => {
+      let res = await invoke("setup_replay_buffer");
+      console.log(res);
+      navigate("/obs");
     })
     .catch((e) => {setConnectState(false);setErrMessage(e)});
   }

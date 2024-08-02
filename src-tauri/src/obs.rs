@@ -1,9 +1,10 @@
 // use anyhow::{Ok,Result};
-use obws::{Client};
+use obws::{client, Client};
 use serde::{Deserialize,Serialize};
 // use core::time;
-use std::{path::Path};
+use std::{path::Path, thread::current, };
 use time::Duration;
+use obws::requests::custom::source_settings::SlideshowFile;
 pub struct ObsConnection {
     pub host: String,
     pub port: u16,
@@ -18,11 +19,21 @@ enum ColorRange {
 }
 
 
+const REPLAY_SOURCE_NAME: &str = "vlc_source";
+
 pub struct ObsClass{
     pub client: Option<Client>
 }
 
 impl ObsClass{
+
+    async fn get_client(&self) -> Result<&Client,String>{
+        match &self.client{
+            Some(client) => Ok(client),
+            None => Err("Not connected to OBS".to_string())
+        }
+    }
+    
     pub async fn connect(&mut self,data: &ObsConnection) -> Result<bool,String>{
         let client = Client::connect(data.host.clone(), data.port, Some(data.password.clone())).await;
         match client {
@@ -45,54 +56,117 @@ impl ObsClass{
         Ok(version.obs_version.to_string())
     }
 
-    pub async fn set_VLC_source(&self) -> Result<(),String>{
-        let client = match &self.client{
-            Some(client) => client,
-            None => return Err("Not connected to OBS".to_string()),
+    pub async fn is_exist_VLC_source(&self) -> Result<bool,String>{
+        let client = self.get_client().await?;
+        let res = client.inputs().list(Some(obws::requests::custom::source_settings::SOURCE_VLC_SOURCE)).await;
+        match res {
+            Ok(inputs) => {
+                let mut iter = inputs.iter();
+                let is_exist = iter.find(|&i| i.id.name == REPLAY_SOURCE_NAME);
+                if is_exist.is_some() {
+                    return Ok(true);
+                } else {
+                    return Ok(false);
+                }
+            },
+            Err(_) => return Err("Failed to get VLC source".to_string())
+        }
+    }
+
+
+    pub async fn init_VLC_source(&self) -> Result<(),String> {
+        // もうあったら何もしない
+        if self.is_exist_VLC_source().await? {
+            return Ok(());
+        }
+
+        let client = self.get_client().await?;
+        let current_scene = client.scenes().current_program_scene().await;
+        let current_scene = match current_scene {
+            Ok(current_scene) => current_scene,
+            Err(_) => return Err("Failed to get current scene".to_string()),
         };
-        let playlist = obws::requests::custom::source_settings::SlideshowFile {
-            value: Path::new("C:\\Users\\kazum\\Videos\\2024-05-06 23-13-27.mp4"),
-            hidden: false,
-            selected: false,
-        };
-        let playlist2 = obws::requests::custom::source_settings::SlideshowFile {
-            value: Path::new("C:\\Users\\kazum\\Videos\\Replay 2024-08-01 01-14-25.mp4"),
-            hidden: false,
-            selected: false,
-        };
+
         let vlc_setting = obws::requests::custom::source_settings::VlcSource {
             loop_: false,
             shuffle: false,
             playback_behavior: obws::requests::custom::source_settings::PlaybackBehavior::StopRestart,
-            playlist: &[playlist,playlist2],
+            playlist: &[],
             network_caching: Duration::milliseconds(100),
             track: 1,
             subtitle_enable:false,
             subtitle: 0,
         };
-        // let setting: Result<obws::responses::inputs::InputSettings<FfmpegSource>, obws::Error> = client.inputs().settings(obws::requests::inputs::InputId::Name("メディアソース")).await;
-        // let setting: Result<FfmpegSource, obws::Error> = client.inputs().default_settings(obws::requests::custom::source_settings::SOURCE_FFMPEG_SOURCE).await;
-        // match setting {
-        //     Ok(setting) => {
-        //         println!("{:?}",setting);
-        //     },
-        //     Err(e) => return Err(format!("Failed to get VLC source settings: {}",e))
-        // }
-        // let create = obws::requests::inputs::Create {
-        //     scene: obws::requests::scenes::SceneId::Name("Replayiiiiiiiiiii"),
-        //     input: "kind",
-        //     kind : obws::requests::custom::source_settings::SOURCE_VLC_SOURCE,
-        //     settings : Some(vlc_setting),
-        //     enabled: Some(true),
+        let create = obws::requests::inputs::Create {
+            scene: current_scene.id.into(),
+            input: REPLAY_SOURCE_NAME,
+            kind : obws::requests::custom::source_settings::SOURCE_VLC_SOURCE,
+            settings : Some(vlc_setting),
+            enabled: Some(false),
+        };
+        let res = client.inputs().create(create).await;
+        match res {
+            Ok(_) => println!("VLC source created"),
+            Err(e) => println!("Failed to create VLC source: {}",e)
+        }
+        Ok(())
+    }
+
+    pub async fn play_vlc_source(&self,movie_pathes:&Vec<String>) -> Result<(),String>{
+        let client = match &self.client{
+            Some(client) => client,
+            None => return Err("Not connected to OBS".to_string()),
+        };
+
+        if self.is_exist_VLC_source().await? {
+            let input = obws::requests::inputs::InputId::Name(REPLAY_SOURCE_NAME);
+            let res = client.inputs().remove(input).await;
+            match res {
+                Ok(_) => {},
+                Err(e) => return Err(format!("Failed to delete VLC source: {}",e))
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let current_scene = client.scenes().current_program_scene().await;
+        let current_scene = match current_scene {
+            Ok(current_scene) => current_scene,
+            Err(_) => return Err("Failed to get current scene".to_string()),
+        };
+
+        let mut playlists: Vec<SlideshowFile> = Vec::new();
+        for movie_path in movie_pathes {
+            let playlist = SlideshowFile {
+                value: Path::new(movie_path),
+                hidden: false,
+                selected: false,
+            };
+            playlists.push(playlist);
+        }
+        let vlc_setting = obws::requests::custom::source_settings::VlcSource {
+            loop_: false,
+            shuffle: false,
+            playback_behavior: obws::requests::custom::source_settings::PlaybackBehavior::StopRestart,
+            playlist: &playlists, 
+            network_caching: Duration::milliseconds(100),
+            track: 1,
+            subtitle_enable:false,
+            subtitle: 0,
+        };
+        // let set_setting = obws::requests::inputs::SetSettings {
+        //     input: obws::requests::inputs::InputId::Name(REPLAY_SOURCE_NAME),
+        //     overlay: None,
+        //     settings: &vlc_setting,
         // };
         let create = obws::requests::inputs::Create {
-            scene: obws::requests::scenes::SceneId::Name("VALO"),
+            scene: current_scene.id.into(),
             input: "vlc_source",
             kind : obws::requests::custom::source_settings::SOURCE_VLC_SOURCE,
             settings : Some(vlc_setting),
             enabled: Some(true),
         };
         let res = client.inputs().create(create).await;
+        // let res = client.inputs().set_settings(set_setting).await;
         match res {
             Ok(_) => println!("VLC source created"),
             Err(e) => return Err(format!("Failed to create VLC source: {}",e))

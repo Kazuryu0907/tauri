@@ -46,6 +46,7 @@ async fn get_obs_version(state: tauri::State<'_,TauriState>) -> Result<String,St
 #[tauri::command]
 async fn setup_replay_buffer(state: tauri::State<'_,Arc<TauriState>>) -> Result<(),String> {
     let obs_class = state.obs.lock().await;
+    // obs_class.init_VLC_source().await?;
     let res = obs_class.set_replay_buffer().await;
     match res {
         Ok(_) => Ok(()),
@@ -54,24 +55,18 @@ async fn setup_replay_buffer(state: tauri::State<'_,Arc<TauriState>>) -> Result<
 }
 
 #[tauri::command]
-async fn save_replay_buffer(state: tauri::State<'_,TauriState>) -> Result<String,String> {
+async fn setup_vlc_source(state: tauri::State<'_,Arc<TauriState>>) -> Result<(),String> {
     let obs_class = state.obs.lock().await;
-    let res = obs_class.invoke_callback().await;
-    match res {
-        Ok(file_name) => Ok(file_name),
-        Err(_) => return Err("Failed to save replay buffer".to_string())
-    }
+    obs_class.init_VLC_source().await?;
+    Ok(())
 }
-
 
 #[tauri::command]
-async fn setup_udp(state: tauri::State<'_,TauriState>) -> Result<(),String>{
+async fn play_vlc_source(state: tauri::State<'_,Arc<TauriState>>,filenames: Vec<String>) -> Result<(),String> {
     let obs_class = state.obs.lock().await;
-    // udp::udp(obs_class.invoke_callback);
+    obs_class.play_vlc_source(&filenames).await?;
     Ok(())
-
 }
-
 #[tauri::command]
 async fn connect_to_obs(state: tauri::State<'_,Arc<TauriState>>,host:String, port:u16, password:String) -> Result<String,String> {
     let obs_connection = obs::ObsConnection {
@@ -114,7 +109,7 @@ async fn udp(state:Arc<TauriState>, window:Window) -> Result<(),String>{
         let json = match json {
             Ok(json) => json,
             Err(e) => {
-                println!("Failed to parse json: {}", e);
+                // println!("Failed to parse json: {}", e);
                 continue;
             }
         };
@@ -122,22 +117,24 @@ async fn udp(state:Arc<TauriState>, window:Window) -> Result<(),String>{
             println!("Message: {}", msg);
             println!("Goals command received");
             let obs = state.obs.lock().await;
+            sleep(tokio::time::Duration::from_millis(2000)).await;
             let res = obs.capture_replay_buffer().await;
             if let Err(e) = res {
-                return Err(format!("Failed to capture replay buffer: {}", e));
+                println!("Failed to capture replay buffer: {}", e);
+                continue;
             }
-            sleep(Duration::from_secs(1)).await;
+            sleep(tokio::time::Duration::from_millis(100)).await;
             let file_name = obs.get_replay_file_name().await;
             let file_name = match file_name {
                 Ok(file_name) => file_name,
-                Err(e) => return Err(format!("Failed to get replay file name: {}", e)),
+                Err(e) => {println!("Failed to get replay file name: {}", e); continue;},
             };
             println!("File name: {}", file_name);
-            let res = obs.set_VLC_source().await;
-            match res {
-                Ok(_) => {},
-                Err(e) => println!("{}",e)
-            }
+            // let res = obs.set_VLC_source().await;
+            // match res {
+            //     Ok(_) => {},
+            //     Err(e) => println!("{}",e)
+            // }
             window.emit("capture_file", file_name).unwrap();
         }
     }
@@ -161,7 +158,7 @@ async fn main() {
             Ok(())
         })
         .manage(Arc::clone(&tauri_state))
-        .invoke_handler(tauri::generate_handler![get_obs_version,connect_to_obs,setup_replay_buffer])
+        .invoke_handler(tauri::generate_handler![get_obs_version,connect_to_obs,setup_replay_buffer,play_vlc_source])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

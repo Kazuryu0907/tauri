@@ -38,12 +38,6 @@
         "icons/icon.icns",
         "icons/icon.ico"
       ]
-    },
-    "updater": {
-      "active": false,
-      "endpoints": [""],
-      "dialog": true,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg5OTA1MzE0ODZGMjE3NzgKUldSNEYvS0dGRk9RaWF0OUpSRmZBWlFyazBUTkVHcXdjYS9JQkxoMmFrTVlyUVN6ZTRhaGN1eHMK"
     }
   }
 }

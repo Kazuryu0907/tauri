@@ -1,6 +1,7 @@
 // use anyhow::{Ok,Result};
 use obws::{client, Client};
 use serde::{Deserialize,Serialize};
+use tauri::Window;
 // use core::time;
 use std::{path::Path, thread::current, };
 use time::Duration;
@@ -175,6 +176,17 @@ impl ObsClass{
         Ok(())
     }
 
+    pub async fn clip(&self,window:&Window) -> Result<(),String>{
+        let res = self.capture_replay_buffer().await;
+        if let Err(e) = res {
+            println!("Failed to capture replay buffer: {}", e);
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let file_name = self.get_replay_file_name().await?;
+        println!("File name: {}", file_name);
+        window.emit("capture_file", file_name).unwrap();
+        Ok(())
+    }
     pub async fn invoke_callback(&self) -> Result<String,String>{
         let client = match &self.client{
             Some(client) => client,

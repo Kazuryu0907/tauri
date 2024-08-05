@@ -2,9 +2,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod obs;
+mod key;
 
 use tauri::{App, Manager, Window};
 use tokio::net::UdpSocket;
+use kira::{manager::{AudioManager,AudioManagerSettings,backend::DefaultBackend},
+sound::static_sound::{StaticSoundData,StaticSoundSettings}};
+
 
 use tokio::time::{Duration, sleep};
 
@@ -93,7 +97,8 @@ async fn udp(state:Arc<TauriState>, window:Window) -> Result<(),String>{
         }
     };
     let mut buf = [0u8;2048];
-
+    let mut manager = AudioManager::<DefaultBackend>::new(AudioManagerSettings::default()).unwrap();
+    let sound_data = StaticSoundData::from_file("camera.ogg").unwrap();
     loop {
         let res = socket.recv_from(&mut buf).await;
         let (len, arr) = match res {
@@ -113,11 +118,14 @@ async fn udp(state:Arc<TauriState>, window:Window) -> Result<(),String>{
                 continue;
             }
         };
-        if &json.cmd == "goals" {
+        if &json.cmd == "goals" || &json.cmd == "__goals__" {
             println!("Message: {}", msg);
             println!("Goals command received");
             let obs = state.obs.lock().await;
-            sleep(tokio::time::Duration::from_millis(2000)).await;
+            if(&json.cmd == "goals"){sleep(tokio::time::Duration::from_millis(2000)).await;}
+            if(&json.cmd == "__goals__"){
+                manager.play(sound_data.clone()).unwrap();
+            }
             let res = obs.capture_replay_buffer().await;
             if let Err(e) = res {
                 println!("Failed to capture replay buffer: {}", e);
@@ -142,18 +150,38 @@ async fn udp(state:Arc<TauriState>, window:Window) -> Result<(),String>{
     Ok(())
 }
 
+use key::{hook,};
+use std::env;
 #[tokio::main]
 async fn main() {
     // tracing_subscriber::fmt().with_max_level(tracing::Level::TRACE).init();
+    let path = env::current_dir().unwrap();
+    println!("The current directory is {}", path.display());
     let tauri_state = Arc::new(TauriState{
         obs: Mutex::new(ObsClass{client: None})
     });
     let _tauri_state = Arc::clone(&tauri_state);
+    // async fn setup_key(tauri_state:&Arc<TauriState>,window:&Window){
+    //     let cl = ||{
+    //         let _tauri_state = Arc::clone(tauri_state);
+    //         let window = window.clone();
+    //         tokio::spawn(async {
+    //             let obs = tauri_state.obs.lock().await;
+    //             obs.clip(&window).await;
+    //         });
+    //     };
+    //     let f: key::CallbackFn = Box::new(cl);
+    //     set_fn(f);
+    
+    // let _ = hook();
+    
+
+
     tauri::Builder::default()
         .setup(move |app|{
             let _tauri_state = Arc::clone(&_tauri_state);
             let main_window = app.get_window("main").unwrap();
-            
+            tokio::spawn(async {hook();});
             tokio::spawn(udp(_tauri_state,main_window));
             Ok(())
         })

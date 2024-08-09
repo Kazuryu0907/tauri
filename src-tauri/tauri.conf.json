@@ -6,7 +6,7 @@
     "distDir": "../dist"
   },
   "package": {
-    "productName": "tauri-app",
+    "productName": "RL_highlight",
     "version": "0.0.0"
   },
   "tauri": {

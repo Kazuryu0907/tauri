@@ -1,11 +1,12 @@
-// use anyhow::{Ok,Result};
-use obws::{client, Client};
-use serde::{Deserialize,Serialize};
-use tauri::Window;
+use obws::responses::inputs::InputId;
+use obws::responses::scene_items::SceneItem;
+use obws::Client;
+use serde::Deserialize;
 // use core::time;
-use std::{path::Path, thread::current, };
+use std::path::Path;
 use time::Duration;
 use obws::requests::custom::source_settings::SlideshowFile;
+use obws::events::Event;
 pub struct ObsConnection {
     pub host: String,
     pub port: u16,
@@ -57,7 +58,7 @@ impl ObsClass{
         Ok(version.obs_version.to_string())
     }
 
-    pub async fn is_exist_VLC_source(&self) -> Result<bool,String>{
+    pub async fn is_exist_vlc_source(&self) -> Result<bool,String>{
         let client = self.get_client().await?;
         let res = client.inputs().list(Some(obws::requests::custom::source_settings::SOURCE_VLC_SOURCE)).await;
         match res {
@@ -75,9 +76,9 @@ impl ObsClass{
     }
 
 
-    pub async fn init_VLC_source(&self) -> Result<(),String> {
+    pub async fn init_vlc_source(&self) -> Result<(),String> {
         // もうあったら何もしない
-        if self.is_exist_VLC_source().await? {
+        if self.is_exist_vlc_source().await? {
             return Ok(());
         }
 
@@ -113,27 +114,47 @@ impl ObsClass{
         Ok(())
     }
 
+
+    async fn get_current_scene(&self) -> Result<obws::responses::scenes::CurrentProgramScene,String> {
+        let client = self.get_client().await?;
+        let current_scene = client.scenes().current_program_scene().await;
+        match current_scene {
+            Ok(current_scene) => Ok(current_scene),
+            Err(_) => Err("Failed to get current scene".to_string())
+        }
+    }
+
+    async fn get_replay_source_item_id(&self) -> Result<i64,String> {
+        let client = self.get_client().await?;
+        let current_scene = self.get_current_scene().await?;
+        let scene_items = client.scene_items().list(current_scene.id.clone().into()).await;
+        let scene_items = match scene_items {
+            Ok(scene_items) => scene_items,
+            Err(_) => return Err("Failed to get scene items".to_string())
+        };
+        let replay_source_item: Vec<&SceneItem> = scene_items.iter().filter(|&item| {
+            item.source_name == REPLAY_SOURCE_NAME
+        }).collect();
+        Ok(replay_source_item[0].id)
+    }
+
     pub async fn play_vlc_source(&self,movie_pathes:&Vec<String>) -> Result<(),String>{
         let client = match &self.client{
             Some(client) => client,
             None => return Err("Not connected to OBS".to_string()),
         };
 
-        if self.is_exist_VLC_source().await? {
-            let input = obws::requests::inputs::InputId::Name(REPLAY_SOURCE_NAME);
-            let res = client.inputs().remove(input).await;
-            match res {
-                Ok(_) => {},
-                Err(e) => return Err(format!("Failed to delete VLC source: {}",e))
-            }
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        // if self.is_exist_vlc_source().await? {
+        //     let input = obws::requests::inputs::InputId::Name(REPLAY_SOURCE_NAME);
+        //     let res = client.inputs().remove(input).await;
+        //     match res {
+        //         Ok(_) => {},
+        //         Err(e) => return Err(format!("Failed to delete VLC source: {}",e))
+        //     }
+        // }
+        // tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-        let current_scene = client.scenes().current_program_scene().await;
-        let current_scene = match current_scene {
-            Ok(current_scene) => current_scene,
-            Err(_) => return Err("Failed to get current scene".to_string()),
-        };
+        let current_scene = self.get_current_scene().await?; 
 
         let mut playlists: Vec<SlideshowFile> = Vec::new();
         for movie_path in movie_pathes {
@@ -154,56 +175,72 @@ impl ObsClass{
             subtitle_enable:false,
             subtitle: 0,
         };
-        // let set_setting = obws::requests::inputs::SetSettings {
-        //     input: obws::requests::inputs::InputId::Name(REPLAY_SOURCE_NAME),
-        //     overlay: None,
-        //     settings: &vlc_setting,
-        // };
-        let create = obws::requests::inputs::Create {
-            scene: current_scene.id.into(),
-            input: "vlc_source",
-            kind : obws::requests::custom::source_settings::SOURCE_VLC_SOURCE,
-            settings : Some(vlc_setting),
-            enabled: Some(true),
+        let set_setting = obws::requests::inputs::SetSettings {
+            input: obws::requests::inputs::InputId::Name(REPLAY_SOURCE_NAME),
+            overlay: Some(true),
+            settings: &vlc_setting,
         };
-        let res = client.inputs().create(create).await;
-        // let res = client.inputs().set_settings(set_setting).await;
+        // let create = obws::requests::inputs::Create {
+        //     scene: current_scene.id.into(),
+        //     input: "vlc_source",
+        //     kind : obws::requests::custom::source_settings::SOURCE_VLC_SOURCE,
+        //     settings : Some(vlc_setting),
+        //     enabled: Some(true),
+        // };
+        // let res = client.inputs().create(create).await;
+        let res = client.inputs().set_settings(set_setting).await;
         match res {
-            Ok(_) => println!("VLC source created"),
+            Ok(_) => println!("VLC source updated"),
             Err(e) => return Err(format!("Failed to create VLC source: {}",e))
+        }
+        let scene_items = client.scene_items().list(current_scene.id.clone().into()).await;
+        let scene_items = match scene_items {
+            Ok(scene_items) => scene_items,
+            Err(_) => return Err("Failed to get scene items".to_string())
+        };
+        let replay_source_item: Vec<&SceneItem> = scene_items.iter().filter(|&item| {
+            item.source_name == REPLAY_SOURCE_NAME
+        }).collect();
+        let set_enabled = obws::requests::scene_items::SetEnabled {
+            scene: current_scene.id.into(),
+            item_id: replay_source_item[0].id,
+            enabled: true,
+        };
+        let res = client.scene_items().set_enabled(set_enabled).await;
+        if let Err(e) = res {
+            return Err(format!("Failed to set VLC source enabled: {}",e));
         }
         
         Ok(())
     }
 
-    pub async fn clip(&self,window:&Window) -> Result<(),String>{
-        let res = self.capture_replay_buffer().await;
-        if let Err(e) = res {
-            println!("Failed to capture replay buffer: {}", e);
+    pub async fn on_playback_ended(&self,id:InputId) -> Result<(),String> {
+        let client = self.get_client().await?;
+        if id.name == REPLAY_SOURCE_NAME {
+            let current_scene = self.get_current_scene().await?;
+            let item_id = self.get_replay_source_item_id().await?;
+            let set_enabled = obws::requests::scene_items::SetEnabled {
+                scene: current_scene.id.into(),
+                item_id: item_id,
+                enabled: false,
+            };
+            let res = client.scene_items().set_enabled(set_enabled).await;
+            if let Err(e) = res {
+                return Err(format!("Failed to set VLC source disabled: {}",e));
+            }
         }
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        let file_name = self.get_replay_file_name().await?;
-        println!("File name: {}", file_name);
-        window.emit("capture_file", file_name).unwrap();
         Ok(())
     }
-    pub async fn invoke_callback(&self) -> Result<String,String>{
-        let client = match &self.client{
-            Some(client) => client,
-            None => return Err("Not connected to OBS".to_string()),
-        };
-        let res = client.replay_buffer().save().await;
-        match res {
-            Ok(_) => {},
-            Err(_) => return Err("Failed to save replay buffer".to_string())
+
+    pub async fn generate_event_listener(&self) -> Result<impl futures_util::Stream<Item = Event>,String> {
+        let client = self.get_client().await?;
+        let events = client.events();
+        match events {
+            Ok(events) => Ok(events),
+            Err(_) => return Err("Failed to generate events listener".to_string())
         }
-        let file_name = client.replay_buffer().last_replay().await;
-        match file_name {
-            Ok(file_name) => Ok(file_name),
-            Err(_) => return Err("Failed to get replay file name".to_string())
-        }
-        // client.scene_items().set_private_settings(settings)
     }
+    
 
     pub async fn set_replay_buffer(&self) -> Result<(),String>{
         let client = match &self.client{
@@ -241,15 +278,4 @@ impl ObsClass{
         Ok(())
     }
 
-    pub async fn get_replay_file_name(&self) -> Result<String,String>{
-        let client = match &self.client{
-            Some(client) => client,
-            None => return Err("Not connected to OBS".to_string()),
-        };
-        let res = client.replay_buffer().last_replay().await;
-        match res {
-            Ok(file_name) => Ok(file_name),
-            Err(_) => return Err("Failed to get replay file name".to_string())
-        }
-    }
 }

@@ -2,12 +2,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod obs;
-mod key;
+mod sound;
+// mod key;
 
+
+use futures_util::StreamExt;
 use tauri::{App, Manager, Window};
+use tauri_plugin_log::LogTarget;
 use tokio::net::UdpSocket;
-use kira::{manager::{AudioManager,AudioManagerSettings,backend::DefaultBackend},
-sound::static_sound::{StaticSoundData,StaticSoundSettings}};
 
 
 use tokio::time::{Duration, sleep};
@@ -31,11 +33,8 @@ struct TauriState{
     obs: Mutex<ObsClass>,
 }
 
-// Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
+use sound::Sound;
+
 
 #[tauri::command]
 async fn get_obs_version(state: tauri::State<'_,TauriState>) -> Result<String,String> {
@@ -46,24 +45,35 @@ async fn get_obs_version(state: tauri::State<'_,TauriState>) -> Result<String,St
         Err(_) => Err("Failed to get OBS version".to_string())
     }
 }
-
 #[tauri::command]
-async fn setup_replay_buffer(state: tauri::State<'_,Arc<TauriState>>) -> Result<(),String> {
+async fn obs_login_init(state: tauri::State<'_,Arc<TauriState>>,window:Window) -> Result<(),String> {
+    let _obs_class = Arc::clone(&state);
     let obs_class = state.obs.lock().await;
-    // obs_class.init_VLC_source().await?;
-    let res = obs_class.set_replay_buffer().await;
-    match res {
-        Ok(_) => Ok(()),
-        Err(_) => return Err("Failed to start replay buffer".to_string())
-    }
-}
-
-#[tauri::command]
-async fn setup_vlc_source(state: tauri::State<'_,Arc<TauriState>>) -> Result<(),String> {
-    let obs_class = state.obs.lock().await;
-    obs_class.init_VLC_source().await?;
+    obs_class.set_replay_buffer().await?;
+    obs_class.init_vlc_source().await?;
+    let event_litener = obs_class.generate_event_listener().await?;
+    // futures_util::pin_mut!(event_litener);
+    let mut sound = Sound::new();
+    let fut = event_litener.for_each(move |e| {
+        match e {
+            obws::events::Event::ReplayBufferSaved {path} => {
+                // println!("Replay buffer saved: {:?}", path);
+                window.emit("capture_file", path).unwrap();
+                sound.play();
+            },
+            obws::events::Event::MediaInputPlaybackEnded { id } => {
+                // PASS
+            }
+            _ => {
+                println!("Event: {:?}", e);
+            },
+        }
+        futures_util::future::ready(())
+    });
+    tokio::spawn(async move {fut.await});
     Ok(())
 }
+
 
 #[tauri::command]
 async fn play_vlc_source(state: tauri::State<'_,Arc<TauriState>>,filenames: Vec<String>) -> Result<(),String> {
@@ -87,7 +97,7 @@ async fn connect_to_obs(state: tauri::State<'_,Arc<TauriState>>,host:String, por
 }
 
 
-async fn udp(state:Arc<TauriState>, window:Window) -> Result<(),String>{
+async fn udp(state:Arc<TauriState>) -> Result<(),String>{
     let socket = UdpSocket::bind("0.0.0.0:12345").await;
     let socket = match socket {
         Ok(socket) => socket,
@@ -97,8 +107,6 @@ async fn udp(state:Arc<TauriState>, window:Window) -> Result<(),String>{
         }
     };
     let mut buf = [0u8;2048];
-    let mut manager = AudioManager::<DefaultBackend>::new(AudioManagerSettings::default()).unwrap();
-    let sound_data = StaticSoundData::from_file("camera.ogg").unwrap();
     loop {
         let res = socket.recv_from(&mut buf).await;
         let (len, arr) = match res {
@@ -123,37 +131,40 @@ async fn udp(state:Arc<TauriState>, window:Window) -> Result<(),String>{
             println!("Goals command received");
             let obs = state.obs.lock().await;
             if(&json.cmd == "goals"){sleep(tokio::time::Duration::from_millis(2000)).await;}
-            if(&json.cmd == "__goals__"){
-                manager.play(sound_data.clone()).unwrap();
-            }
+            // if(&json.cmd == "__goals__"){
+            //     manager.play(sound_data.clone()).unwrap();
+            // }
             let res = obs.capture_replay_buffer().await;
             if let Err(e) = res {
                 println!("Failed to capture replay buffer: {}", e);
                 continue;
             }
-            sleep(tokio::time::Duration::from_millis(100)).await;
-            let file_name = obs.get_replay_file_name().await;
-            let file_name = match file_name {
-                Ok(file_name) => file_name,
-                Err(e) => {println!("Failed to get replay file name: {}", e); continue;},
-            };
-            println!("File name: {}", file_name);
+            // sleep(tokio::time::Duration::from_millis(100)).await;
+            // let file_name = obs.get_replay_file_name().await;
+            // let file_name = match file_name {
+            //     Ok(file_name) => file_name,
+            //     Err(e) => {println!("Failed to get replay file name: {}", e); continue;},
+            // };
+            // println!("File name: {}", file_name);
             // let res = obs.set_VLC_source().await;
             // match res {
             //     Ok(_) => {},
             //     Err(e) => println!("{}",e)
             // }
-            window.emit("capture_file", file_name).unwrap();
+            // window.emit("capture_file", file_name).unwrap();
         }
     }
     
     Ok(())
 }
 
-use key::{hook,};
 use std::env;
+use log::{error};
+use std::{fs::File};
 #[tokio::main]
 async fn main() {
+    // let log_file = File::create("log.txt").unwrap();
+    // tracing_subscriber::fmt().with_max_level(tracing::Level::TRACE).with_writer(std::sync::Mutex::new(log_file)).finish();
     // tracing_subscriber::fmt().with_max_level(tracing::Level::TRACE).init();
     let path = env::current_dir().unwrap();
     println!("The current directory is {}", path.display());
@@ -180,13 +191,25 @@ async fn main() {
     tauri::Builder::default()
         .setup(move |app|{
             let _tauri_state = Arc::clone(&_tauri_state);
-            let main_window = app.get_window("main").unwrap();
-            tokio::spawn(async {hook();});
-            tokio::spawn(udp(_tauri_state,main_window));
+            // tokio::spawn(async {
+            //     let res = hook();
+            //     if let Err(e) = res {
+            //         error!("Failed to hook: {}", e);
+            //     }
+            // });
+            tokio::spawn(udp(_tauri_state));
             Ok(())
         })
+        // .plugin(tauri_plugin_log::Builder::new()
+        //     .targets([
+        //         LogTarget::Stdout,
+        //         LogTarget::Stderr,
+        //         LogTarget::Webview,
+        //         LogTarget::LogDir,
+        //     ]).build(),
+        // )
         .manage(Arc::clone(&tauri_state))
-        .invoke_handler(tauri::generate_handler![get_obs_version,connect_to_obs,setup_replay_buffer,play_vlc_source])
+        .invoke_handler(tauri::generate_handler![get_obs_version,connect_to_obs,play_vlc_source,obs_login_init])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

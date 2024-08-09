@@ -24,11 +24,11 @@ const ButtonComponent = () => {
     const port = parseInt(formData.get("port") as string);
     const password = formData.get("password");
     console.log(host, port, password);
-    setConnectState(true)
+    setConnectState(true);
     invoke("connect_to_obs", { host, port, password })
     .then(async() => {
-      let res = await invoke("obs_login_init");
-      console.log(res);
+      invoke("obs_login_init").then(console.log)
+      .catch(e => {setConnectState(false);setErrMessage(e);});
       navigate("/obs");
     })
     .catch((e) => {setConnectState(false);setErrMessage(e)});

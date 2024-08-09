@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/tauri";
 export function OBS() {
     // const [filenames,setFilename] = useState<string[]>(["C:/Users/kazum/Videos/Replay 2024-08-02 12-37-59.mp4","C:/Users/kazum/Videos/Replay 2024-08-02 12-38-04.mp4","C:/Users/kazum/Videos/Replay 2024-08-02 12-38-04.mp4","C:/Users/kazum/Videos/Replay 2024-08-02 12-38-04.mp4","C:/Users/kazum/Videos/Replay 2024-08-02 12-38-04.mp4"]);
     const [filenames,setFilename] = useState<string[]>([]);
+    const [errMessage,setErrMessage] = useState("");
     useEffect(() => {
         let unlisten:any;
         async function f(){
@@ -27,8 +28,8 @@ export function OBS() {
 
     const onClick = async () => {
         invoke("play_vlc_source",{ filenames: filenames })
-        .then(() => {console.log("success");setFilename([])})
-        .catch((e) => console.log(e));
+        .then(() => {console.log("success");setFilename([]);setErrMessage("");})
+        .catch(e => setErrMessage(e));
     }
     const Button = () => {
         return (
@@ -49,6 +50,7 @@ export function OBS() {
 
                 <div className="mt-16 flex justify-center"><Button/></div>
             </div>
+            {errMessage && <div className="mt-2 text-red-600 font-bold">{errMessage}</div>}
 
         </div>
     )
